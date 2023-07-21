@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/mattn/go-sqlite3"
@@ -40,8 +41,8 @@ func New(storagePath string) (*Storage, error) {
 	return &Storage{db: db}, nil
 }
 
-func (s *Storage) saveTask(taskName string) (int64, error) {
-	const op = "storage.sqlite.saveTask"
+func (s *Storage) SaveTask(taskName string) (int64, error) {
+	const op = "storage.sqlite.SaveTask"
 
 	stmt, err := s.db.Prepare(`INSERT INTO task(name) VALUES(?)`)
 	if err != nil {
@@ -51,7 +52,7 @@ func (s *Storage) saveTask(taskName string) (int64, error) {
 	res, err := stmt.Exec(taskName)
 	if err != nil {
 		if sqliteErr, ok := err.(sqlite3.Error); ok && sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique {
-			return 0, fmt.Errorf("%s: %w", op, storage.ErrURLExists)
+			return 0, fmt.Errorf("%s: %w", op, storage.ErrTaskExists)
 		}
 		return 0, fmt.Errorf("%s: %w", op, err)
 	}
@@ -62,4 +63,26 @@ func (s *Storage) saveTask(taskName string) (int64, error) {
 	}
 
 	return id, nil
+}
+
+func (s *Storage) GetTask(taskId int64) (string, error) {
+	const op = "storage.sqlite.GetTask"
+
+	stmt, err := s.db.Prepare(`SELECT name FROM task WHERE id = ?`)
+	if err != nil {
+		return "", fmt.Errorf("%s: prepare statement: %w", op, err)
+	}
+
+	var resName string
+	err = stmt.QueryRow(taskId).Scan(&resName)
+	
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", storage.ErrTaskNotFound
+		}
+		
+		return "", fmt.Errorf("%s: execute statement: %w", op, err)
+	}
+
+	return resName, nil
 }

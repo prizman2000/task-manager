@@ -3,6 +3,6 @@ package storage
 import "errors"
 
 var (
-	ErrURLNotFound	 = errors.New("url not found")
-	ErrURLExists	 = errors.New("url exists")
+	ErrTaskNotFound	 = errors.New("task not found")
+	ErrTaskExists	 = errors.New("task exists")
 )

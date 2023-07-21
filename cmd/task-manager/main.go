@@ -1,11 +1,17 @@
 package main
 
 import (
+	"net/http"
 	"os"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"golang.org/x/exp/slog"
 
 	"lebedev.vr/task-manager/internal/config"
+	"lebedev.vr/task-manager/internal/http-server/handlers/task/save"
+	mwLogger "lebedev.vr/task-manager/internal/http-server/middleware/logger"
+	"lebedev.vr/task-manager/internal/lib/logger/handlers/slogpretty"
 	"lebedev.vr/task-manager/internal/lib/logger/sl"
 	"lebedev.vr/task-manager/internal/storage/sqlite"
 )
@@ -21,6 +27,8 @@ func main() {
 
 	log := setupLogger(cfg.Env)
 
+	log.Info("Starting Task Manager server", slog.String("env", cfg.Env))
+
 	storage, err := sqlite.New(cfg.StoragePath)
 	if err != nil {
 		log.Error("failed to init storage", sl.Err(err))
@@ -29,9 +37,30 @@ func main() {
 
 	_ = storage
 
-	// TODO: init router - chi
+	router := chi.NewRouter()
 
-	// TODO: run server
+	router.Use(middleware.RequestID)
+	router.Use(mwLogger.New(log))
+	router.Use(middleware.Recoverer)
+	router.Use(middleware.URLFormat)
+
+	router.Post("/task", save.New(log, storage))
+
+	log.Info("Starting HTTP server", slog.String("address", cfg.Address))
+
+	srv := &http.Server{
+		Addr:    cfg.Address,
+        Handler: router,
+		ReadTimeout: cfg.HTTPServer.Timeout,
+		WriteTimeout: cfg.HTTPServer.Timeout,
+		IdleTimeout: cfg.HTTPServer.IdleTimeout,
+    }
+
+	if err := srv.ListenAndServe(); err != nil {
+		log.Error("failed to start HTTP server")
+	}
+
+	log.Error("HTTP server stopped")
 }
 
 func setupLogger(env string) *slog.Logger {
@@ -39,9 +68,7 @@ func setupLogger(env string) *slog.Logger {
 
 	switch env {
 	case envLocal:
-		log = slog.New(
-			slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}),
-		)
+		log = setupPrettySlog()
 	case envDev:
 		log = slog.New(
 			slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}),
@@ -53,4 +80,16 @@ func setupLogger(env string) *slog.Logger {
 	}
 
 	return log
+}
+
+func setupPrettySlog() *slog.Logger {
+	opts := slogpretty.PrettyHandlerOptions{
+		SlogOpts: &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		},
+	}
+
+	handler := opts.NewPrettyHandler(os.Stdout)
+
+	return slog.New(handler)
 }
